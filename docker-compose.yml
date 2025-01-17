@@ -1,0 +1,78 @@
+version: '3.5'
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    restart: always
+    ports:
+      - "10051:10051"
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - ./wireguard.conf:/config/wg_confs/esu2-zabwg0.conf
+      - /lib/modules:/lib/modules
+        #sysctls:
+        #- net.ipv4.conf.all.src_valid_mark=1
+
+  test:
+    image: busybox
+    network_mode: "service:wireguard"
+    command: "sleep 10000"
+
+  zabbix-proxy:
+    image: zabbix/zabbix-proxy-sqlite3:ubuntu-${ZBX_VERSION}-latest
+    container_name: zabbix-proxy
+    network_mode: "service:wireguard"
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./zbx_env/usr/lib/zabbix/externalscripts:/usr/lib/zabbix/externalscripts:ro
+      - ./zbx_env/var/lib/zabbix/modules:/var/lib/zabbix/modules:ro
+      - ./zbx_env/var/lib/zabbix/enc:/var/lib/zabbix/enc:ro
+      - ./zbx_env/var/lib/zabbix/ssh_keys:/var/lib/zabbix/ssh_keys:ro
+      - ./zbx_env/var/lib/zabbix/mibs:/var/lib/zabbix/mibs:ro
+      - snmptraps:/var/lib/zabbix/snmptraps:rw
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    environment:
+      #DEBUG_MODE: true
+      ZBX_SERVER_HOST: "${ZBX_SERVER_HOST}"
+      ZBX_HOSTNAME: "${ZBX_HOSTNAME}"
+    stop_grace_period: 30s
+
+  zabbix-agent:
+    image: zabbix/zabbix-agent2:ubuntu-${ZBX_VERSION}-latest
+    container_name: zabbix-agent
+    network_mode: "service:wireguard"
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./zbx_env/etc/zabbix/zabbix_agentd.d:/etc/zabbix/zabbix_agentd.d:ro
+      - ./zbx_env/var/lib/zabbix/modules:/var/lib/zabbix/modules:ro
+      - ./zbx_env/var/lib/zabbix/enc:/var/lib/zabbix/enc:ro
+      - ./zbx_env/var/lib/zabbix/ssh_keys:/var/lib/zabbix/ssh_keys:ro
+    environment:
+      ZBX_SERVER_HOST: "${ZBX_SERVER_HOST},127.0.0.1"
+      ZBX_ACTIVE_ALLOW: "true"
+      ZBX_HOSTNAME: "${ZBX_HOSTNAME}"
+    privileged: true
+    pid: "host"
+    stop_grace_period: 5s
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.239.0/24
+
+volumes:
+  db:
+  snmptraps:
